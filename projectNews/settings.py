@@ -62,9 +62,11 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # NEXT 開發伺服器的位址
+    "https://education-platform-o8gln652m-wengb0829022s-projects.vercel.app/"
 ]
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",  # NEXT 開發伺服器的位址
+    "https://education-platform-o8gln652m-wengb0829022s-projects.vercel.app/"
 ]
 INSTALLED_APPS = [
     'django.contrib.auth',
