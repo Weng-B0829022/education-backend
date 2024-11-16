@@ -4,7 +4,7 @@ from queue import Queue
 from threading import Thread
 from django.conf import settings
 
-avatar_count = 0
+avatar_count = 2
 class StoryboardManager:
     def __init__(self, file_path, random_id, initial_storyboard=None):
         self.file_path = os.path.join(settings.BASE_DIR, file_path, 'story_board.json')
