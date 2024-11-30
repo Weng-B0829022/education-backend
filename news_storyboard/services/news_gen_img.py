@@ -200,5 +200,27 @@ def run_news_gen_img(manager, storyboard_object, random_id, coordinates):
         log_and_print(f"圖片生成過程中發生錯誤: {str(e)}")
         return []
 
+def execute_news_gen_img(manager, storyboard_object, random_id, coordinates):
+    # 檢查是否有上傳的圖片
+    if 'uploaded_images' in storyboard_object:
+        # 使用上傳的圖片
+        image_urls = run_news_gen_img(manager, storyboard_object, random_id, coordinates)
+    else:
+        # 原有的圖片生成邏輯
+        image_descriptions = []
+        for idx, item in enumerate(storyboard_object.get('storyboard', [])):
+            description = item.get('imageDescription')
+            if description:
+                translated_description = translate_to_english(description)
+                image_descriptions.append(translated_description)
+        
+        image_urls = generate_images_from_descriptions(
+            storyboard_object.get('title'), 
+            image_descriptions,
+            random_id
+        )
+    
+    return image_urls
+
 if __name__ == '__main__':
     run_news_gen_img()

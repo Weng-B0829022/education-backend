@@ -1,5 +1,3 @@
-
-from .news_gen_img import run_news_gen_img
 from .news_gen_voice_and_video import run_news_gen_voice_and_video
 from .upload_to_bucket import upload_to_bucket
 import os 
@@ -13,32 +11,30 @@ import random
 import string
 from concurrent.futures import ThreadPoolExecutor
 from .config import HALF_CONFIG, FULL_CONFIG
+import re
 
 def execute_news_gen_img(manager, storyboard_object, random_id, scene_coordinates):
     try:
-        result = run_news_gen_img(manager, storyboard_object, random_id, scene_coordinates)
-        
-        # 处理结果，分离 URL 和图片数据
+        # 準備模擬的結果
         processed_result = []
-        img_binary = []  # 存储所有图片的二进制数据
+        img_binary = []
         
-        for item in result:
-            url, img_data = item
-            # 直接存储二进制数据，不进行 base64 编码
-            img_binary.append(img_data)
+        # 為每個段落創建一個假的結果
+        safe_title = re.sub(r'[^\w\-_\. ]', '_', storyboard_object['title'])
+        for i in range(len(storyboard_object['storyboard'])):
+            image_name = f'{safe_title}_{i+1}.png'
+            # 添加 URL
             processed_result.append({
-                "url": url,
+                "url": image_name,
             })
-        
-        # 如果没有处理任何图片，设置一个默认值
-        if not img_binary:
-            img_binary = [b""]  # 空的字节串作为默认值
+            # 添加空的二進制數據（因為圖片已經保存了）
+            img_binary.append(b"")
         
         return (img_binary, processed_result)
     except Exception as e:
         print(str(e))
         return (None, {"status": "error", "message": str(e)})
-    
+
 def execute_news_gen_voice_and_video(manager, storyboard_object, random_id, avatar_coordinates):
     try:
         print(storyboard_object)
@@ -48,9 +44,8 @@ def execute_news_gen_voice_and_video(manager, storyboard_object, random_id, avat
     except Exception as e:
         return [""]  # 返回一个包含空字符串的列表，表示出错
 
-def combine_media(story_object):
+def combine_media(story_object, uploaded_images):
     def generate_random_id(length=10):
-        """生成指定長度的隨機字母數字字符串"""
         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
     def setup_image(manager, random_id, image_name, config_item, copy_image=True):
@@ -71,75 +66,82 @@ def combine_media(story_object):
             shutil.copy2(source_path, destination_path)
 
     story_object['storyboard'] = story_object['storyboard'][:]
-    random_id = generate_random_id()#每次生成給予專屬id
-    #移除generated資料夾
+    random_id = generate_random_id()
     remove_generated_folder()
     manager = execute_storyboard_manager(os.path.join(settings.MEDIA_ROOT, 'generated', random_id), random_id, story_object)
     
     config = HALF_CONFIG if manager.storyboard['avatarType'] == 'half' else FULL_CONFIG
-    #設定影片尺寸
     canvas_size = config['canvas_size']
-    # 定義圖片在影片各個scene中的坐標
     scene_place_coordinates = config['scene_place_coordinates']
-    #avatar位置
     avatar_place_coordinates = config['avatar_place_coordinates']
-    #欲裁減avatar位置x, y, w, h
     crop_coords = config['crop_coords']
-    
 
-
-    with ThreadPoolExecutor(max_workers=2) as executor:  
-        future_img = executor.submit(execute_news_gen_img, manager, manager.storyboard, random_id, scene_place_coordinates) 
-        future_voice_and_video = executor.submit(execute_news_gen_voice_and_video, manager, manager.storyboard, random_id, avatar_place_coordinates)
-
-    # 獲取結果 
-    try: # 選擇配置
+    try:
+        # 保存上傳的圖片並添加到 storyboard
+        output_dir = os.path.join(settings.MEDIA_ROOT, 'generated', random_id)
+        os.makedirs(output_dir, exist_ok=True)
         
-        #設定背景
-        setup_image(manager, 
-                    random_id, 
-                    config['background']['file'],
-                    config['background'],
-                    copy_image=True)
-        #title文字生成
+        # 處理圖片並生成 image_urls
+        image_urls = []
+        for i, image in enumerate(uploaded_images):
+            # 使用與原本相同的命名規則
+            safe_title = re.sub(r'[^\w\-_\. ]', '_', story_object['title'])
+            image_name = f'{safe_title}_{i+1}.png'
+            image_path = os.path.join(output_dir, image_name)
+            
+            # 保存圖片
+            with open(image_path, 'wb+') as destination:
+                for chunk in image.chunks():
+                    destination.write(chunk)
+            
+            # 添加圖片配置到對應的段落
+            image_info = {
+                "img_path": image_name,
+                "top_left": scene_place_coordinates["top_left"],
+                "top_right": scene_place_coordinates["top_right"],
+                "bottom_right": scene_place_coordinates["bottom_right"],
+                "bottom_left": scene_place_coordinates["bottom_left"],
+                "z_index": 0
+            }
+            manager.storyboard["storyboard"][i]["images"] = [image_info]
+            
+            # 添加到 image_urls
+            image_urls.append({"url": image_name})
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future_voice_and_video = executor.submit(
+                execute_news_gen_voice_and_video, 
+                manager, 
+                manager.storyboard, 
+                random_id, 
+                avatar_place_coordinates
+            )
+
+        # 設定背景和其他靜態元素
+        setup_image(manager, random_id, config['background']['file'], config['background'], copy_image=True)
         title_img_path = text_to_image(
             manager.storyboard['title'], 
             os.path.join(settings.BASE_DIR, 'font', "NotoSansTC-Bold.ttf"),
             os.path.join(settings.BASE_DIR, 'generated', str(random_id), "title.png"),
             padding=5
         )
-        #設定title
-        setup_image(manager, 
-                    random_id, 
-                    "title.png", 
-                    config['title'],
-                    copy_image=False)
-        
-        #國際新聞文字生成
+        setup_image(manager, random_id, "title.png", config['title'], copy_image=False)
         international_img_path = text_to_image(
             "萬象新聞", 
             os.path.join(settings.BASE_DIR, 'font', "NotoSansTC-Bold.ttf"),
             os.path.join(settings.BASE_DIR, 'generated', str(random_id), "international.png"),
             padding=5
         )
-        #設定國際新聞
-        setup_image(manager, 
-                    random_id, 
-                    "international.png", 
-                    config['international'],
-                    copy_image=False)
+        setup_image(manager, random_id, "international.png", config['international'], copy_image=False)
 
-
-        img_binary, image_urls = future_img.result()
-        audios_path = future_voice_and_video.result()  # 等待語音生成完成，但不使用其結果
+        # 等待語音生成完成
+        audios_path = future_voice_and_video.result()
         video_paths = create_videos_from_images_and_audio(manager, canvas_size, crop_coords)
-        #return video_paths.split('/')[1]
+        
         return random_id, image_urls
     except Exception as e:
-        print(f"Error in image or voice generation: {str(e)}")
-        return None
-    #設定背景
-    
+        print(f"Error in media generation: {str(e)}")
+        return None, None
 
 def execute_storyboard_manager(file_path, random_id, initial_storyboard=None):
     return StoryboardManager(file_path, random_id, initial_storyboard)

@@ -10,6 +10,7 @@ import json
 import logging
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
 
 logger = logging.getLogger(__name__)
 
@@ -39,20 +40,38 @@ class NewsGenImgView(APIView):
 
 
 class NewsGenVideoView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+
     def post(self, request):
-        story_object = request.data.get('story_object')
-        if not story_object:
-            return JsonResponse({'error': 'Missing story_object parameter'}, status=400)
-        
-        # 直接執行 start_data_collection 並獲取 image_urls
         try:
-            random_id, image_urls = combine_media(story_object)
-        except Exception as e:
-            print(f"Error in combine_media: {str(e)}")
-            print(traceback.format_exc())
-            return JsonResponse({'error': 'Internal server error'}, status=500)
-        # 立即返回 image_urls 給前端
-        return JsonResponse({'message': 'Image generation completed', 'image_urls': image_urls, 'random_id': random_id}, status=200)
+            # 解析 JSON 字串
+            story_object = json.loads(request.POST.get('story_object'))
+            if not story_object:
+                return JsonResponse({'error': 'Missing story_object parameter'}, status=400)
+            
+            # 收集上傳的圖片
+            uploaded_images = []
+            for i in range(len(story_object['storyboard'])):
+                image_key = f'image_{i}'
+                if image_key in request.FILES:
+                    uploaded_images.append(request.FILES[image_key])
+            
+            # 將圖片傳入 combine_media
+            try:
+                random_id, image_urls = combine_media(story_object, uploaded_images)
+            except Exception as e:
+                print(f"Error in combine_media: {str(e)}")
+                print(traceback.format_exc())
+                return JsonResponse({'error': 'Internal server error'}, status=500)
+                
+            return JsonResponse({
+                'message': 'Image generation completed', 
+                'image_urls': image_urls, 
+                'random_id': random_id
+            }, status=200)
+            
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
 
 class GetGeneratedVideoView(View):
     def get(self, request):
